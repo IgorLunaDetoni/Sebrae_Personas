@@ -1,0 +1,127 @@
+---
+title: "Personas_Sebrae"
+output: html_document
+date: '2022-09-12'
+---
+
+```{r setup, include=FALSE}
+# Libraries
+library(ggplot2)
+library(dplyr)
+library(tidyverse)
+library(stringr)
+library(viridis)
+library(hrbrthemes)
+```
+
+```{r Data, include=FALSE}
+x<-readxl::read_excel(path = 'Vendas_Sebrae.xlsx', sheet = NULL)
+```
+
+
+```{r}
+str(x)
+```
+
+
+
+```{r}
+#Contando ocorrencias para cada CNAE
+results<-table(x$CNAE)
+results<-as.data.frame(results)
+
+```
+
+
+```{r}
+
+H1<-filter(results, Var1 != "0000000")
+
+# Most basic bubble plot
+H1 %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq, size = Freq)) +
+    geom_point(alpha=0.7)
+H1 %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq)) + 
+  geom_bar(stat = "identity") +
+  coord_flip()
+```
+
+```{r}
+H2 <- filter(H1, Freq >=500)
+
+H2 %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq)) + 
+  geom_bar(stat = "identity") +
+  coord_flip()
+
+```
+# Limpeza
+```{r}
+x<- filter(x,CNAE != "0000000")
+
+```
+
+
+### Separação por código de CNAE
+
+```{r}
+# Divisão de CNAES
+x$CNAE_DIVISAO<-str_extract(x$CNAE, "^\\d{2}")
+results<-table(x$CNAE_DIVISAO)
+results<-as.data.frame(results)
+```
+
+```{r}
+
+H1<-filter(results, Var1 != "0000000")
+
+# Most basic bubble plot
+H1 %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq, size = Freq)) +
+    geom_point(alpha=0.7)
+H1 %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq)) + 
+  geom_bar(stat = "identity") +
+  coord_flip()
+
+
+H2 <- filter(H1, Freq >=500)
+
+H2 %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq)) + 
+  geom_bar(stat = "identity") +
+  coord_flip()
+
+```
+
+```{r}
+#Contando ocorrencias para cada Porte de empresa
+results<-table(x$PORTE_CLIENTE_PJ)
+results<-as.data.frame(results)
+
+
+P1<-results %>% 
+mutate(Var1 = fct_reorder(Var1, Freq)) %>%
+ggplot(aes(x=Var1, y=Freq)) + 
+  geom_bar(stat = "identity") +
+  coord_flip()
+P1
+```
+
+
+
+```{r}
+write.csv(x, file = "Persona_Sebrae.csv")
+
+```
+
+
+
+
