@@ -336,7 +336,7 @@ a
 
 Analise<-Analise %>% arrange(desc(perc))
 Analise
-write_xlsx(x = Analise, path = 'Analise_clusters_Produtos.xlsx', col_names = TRUE)
+write_xlsx(x = Analise, path = 'Resultados/Analise_clusters_Produtos.xlsx', col_names = TRUE)
 ```
 
 
@@ -363,8 +363,6 @@ Analise_3<-pctt %>%
 
 Analise_3<-Analise_3 %>% arrange(desc(perc))
 Analise_3
-
-
 
 ```
 
@@ -537,6 +535,12 @@ x<-potenciais_enriquecidos_MEI %>% dplyr::select(c("Porte","Cnae","CNPJ", "Ano_A
 y<-potenciais_enriquecidos_ME %>% dplyr::select(c("Porte","Cnae","CNPJ", "Ano_Abertura"))
 
 
+FIM <- rbind(potenciais_enriquecidos_EPP,potenciais_enriquecidos_MEI)
+rm(potenciais_enriquecidos_EPP)
+rm(potenciais_enriquecidos_MEI)
+FIM<- rbind(FIM,potenciais_enriquecidos_ME)
+rm(potenciais_enriquecidos_ME)
+
 f<- filter(f,Cnae != "0000000")
 x<- filter(x,Cnae != "0000000")
 y<- filter(y,Cnae != "0000000")
@@ -545,8 +549,6 @@ y<- filter(y,Cnae != "0000000")
 
 ### Data de venda - Abertura da empresa
 ```{r}
- 
-
 f$Empresa_anos_vida <- 2022 - f$Ano_Abertura
 x$Empresa_anos_vida <- 2022 - x$Ano_Abertura
 y$Empresa_anos_vida <- 2022 - y$Ano_Abertura
@@ -559,14 +561,6 @@ rm(y)
 
 ```
 
-
-
-```{r}
-
-x <- atendimentos_enriquecidos %>% dplyr::select(c( "CNAE_DIVISAO","PORTE_CLIENTE_PJ", "CNPJ_CLIENTE_PJ","Empresa_anos_vida", "NOME_DO_PRODUTO"))
-
-
-```
 
 ### limpeza
 
@@ -586,11 +580,7 @@ antes <- x %>% dplyr::select(c("CNAE_DIVISAO","Empresa_anos_vida","PORTE_CLIENTE
 
 ```
 
-```{r}
-unique(antes$PORTE_CLIENTE_PJ)
 
-
-```
 
 ### REceita para novos dados
 
@@ -648,6 +638,17 @@ Predicao<-boost_fit %>%
 z$clusters <- Predicao$.pred_class
 z$CNPJ <- x$CNPJ
 
+FIM <- left_join(FIM,z, by = "CNPJ")
+
+na.omit(FIM$clusters)
+
+
+Produtos<-readxl::read_excel(path = 'Resultados/Potenciais.xlsx')
+
+Produtos$clusters <- as.factor(Produtos$clusters)
+FIM <- left_join(FIM,Produtos, by = "clusters")
+
+write_xlsx(x = FIM, path = 'Resultados/potenciais_com_clusters.xlsx', col_names = TRUE)
 
 ```
 
