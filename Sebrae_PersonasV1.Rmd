@@ -12,6 +12,17 @@ library(tidyverse)
 library(stringr)
 library(viridis)
 library(hrbrthemes)
+library(klaR)
+library(cluster)
+library(Matrix)
+library(recipes)
+library(writexl)
+library(parsnip)
+library(tidymodels)
+library(randomForest)
+library(e1071)
+library(caTools)
+library(caret)
 ```
 
 ```{r Data, include=FALSE}
@@ -71,7 +82,9 @@ x<- filter(x,CNAE != "0000000")
 ```{r}
 # Divisão de CNAES
 x$CNAE_DIVISAO<-str_extract(x$CNAE, "^\\d{2}")
+
 results<-table(x$CNAE_DIVISAO)
+
 results<-as.data.frame(results)
 ```
 
@@ -116,11 +129,543 @@ P1
 ```
 
 
+```{r, warning=FALSE}
 
-```{r}
-write.csv(x, file = "Persona_Sebrae.csv")
+atendimentos_enriquecidos <- read_csv("atendimentos_enriquecidos.csv")
 
 ```
+
+```{r}
+set.seed(12345)
+results<-table(atendimentos_enriquecidos$`Ano Abertura`)
+results<-as.data.frame(results)
+
+```
+
+
+
+
+## Separação das variáveis
+
+```{r}
+#  `Ano Abertura` CNAE_DIVISAO PORTE_CLIENTE_PJ  CNPJ
+names(atendimentos_enriquecidos)[34] <- "Ano_Abertura"
+
+
+```
+
+
+### Data de venda - Abertura da empresa
+```{r}
+head(atendimentos_enriquecidos$DATA_INICIAL) 
+atendimentos_enriquecidos$DATA_INICIAL_ANO<-format(atendimentos_enriquecidos$DATA_INICIAL, format = "%Y")
+head(atendimentos_enriquecidos$DATA_INICIAL_ANO)
+atendimentos_enriquecidos$DATA_INICIAL_ANO<-as.numeric(atendimentos_enriquecidos$DATA_INICIAL_ANO)
+atendimentos_enriquecidos$Empresa_anos_vida <- atendimentos_enriquecidos$DATA_INICIAL_ANO - atendimentos_enriquecidos$Ano_Abertura
+
+
+```
+
+
+
+```{r}
+
+x <- atendimentos_enriquecidos %>% dplyr::select(c( "CNAE_DIVISAO","PORTE_CLIENTE_PJ", "CNPJ_CLIENTE_PJ","Empresa_anos_vida", "NOME_DO_PRODUTO"))
+
+
+```
+
+### limpeza
+
+```{r}
+#Retirando NAs
+x<-na.omit(x)
+
+#Verificando CNPJs Repetidos
+results<-table(x$CNPJ_CLIENTE_PJ)
+results<-as.data.frame(results)
+
+
+#As empresas que se repetem não mudaram de Tamanho com exceção de 5 empresas
+
+No_duplicados <- duplicated(x$CNPJ_CLIENTE_PJ)
+
+x<-x[!No_duplicados,]
+
+
+
+```
+
+
+### Preciso transformar em fatores?
+##### Ps: preciso :(
+```{r}
+str(x)
+
+results<-table(x$Empresa_anos_vida)
+results<-as.data.frame(results)
+
+
+```
+
+### transformando em fatores
+```{r pressure, echo=FALSE}
+KM=x
+KM$CNPJ_CLIENTE_PJ<-NULL
+KM$NOME_DO_PRODUTO<-NULL
+KM$Ano_Abertura<-NULL 
+KM$Empresa_anos_vida<-as.character(KM$Empresa_anos_vida)
+```
+
+## Criando Dummies para saber quantos cluster precisamos
+
+```{r}
+
+dummies = x
+dummies$CNAE_DIVISAO<-as.numeric(dummies$CNAE_DIVISAO)
+
+# dummies$CNAE_DIVISAO<-log(dummies$CNAE_DIVISAO)
+dummies$CNPJ_CLIENTE_PJ<-NULL
+dummies <- dummies %>%  recipe(CNAE_DIVISAO~.) %>%
+  step_dummy(PORTE_CLIENTE_PJ, one_hot = TRUE) %>% 
+  prep() %>% bake(dummies)
+
+```
+
+
+### PCA
+```{r}
+pCA_ <-prcomp(dummies[,-c(2)])
+
+```
+
+### Verificação de clusters
+```{r}
+plot(pCA_$sdev^2/sum(pCA_$sdev^2),xlab = "PCA", ylab = "Proporção da variância", type ="l")
+
+```
+```{r}
+plot(pCA_$sdev, xlab = "PC", ylab = "Eigenvalues", type = "l")
+```
+
+## Kmodes
+```{r, warning=FALSE}
+result1<-kmodes(KM, 5, iter.max = 10, weighted = FALSE)
+
+result1$modes
+```
+
+
+```{r}
+x$CNAE_DIVISAO<-as.character(x$CNAE_DIVISAO)
+x$Empresa_anos_vida<-as.character(x$Empresa_anos_vida)
+
+
+result1<-kmodes(x[-c(3,5)], 6, iter.max = 10, weighted = FALSE)
+result1$size
+result1$modes
+```
+
+### Plotando os componentes principais em relação com cada um deles
+
+```{r}
+#Colorindo de acordo com os clusters
+plot(pCA_$x[,1],pCA_$x[,6],col=result1$cluster)
+
+```
+
+```{r}
+
+pCA_ <-prcomp(dummies[,-c(2)], scale. = TRUE)
+
+
+```
+
+```{r}
+#Colorindo de acordo com os clusters
+plot(pCA_$x[,1],pCA_$x[,6],col=result1$cluster)
+
+```
+
+### Verificação de clusters
+
+```{r}
+plot(pCA_$sdev^2/sum(pCA_$sdev^2),xlab = "PCA", ylab = "Proporção da variância", type ="l")
+
+```
+
+
+
+```{r}
+x$clusters<-result1$cluster
+
+write_xlsx(x = x, path = 'V1_personas_Cluster.xlsx', col_names = TRUE)
+```
+
+
+Coisas a fazer:
+
+Adicionar os produtos do SEBRAE para entender quais são os mais vendidos por cluster
+% de produto vendido por cluster
+
+```{r}
+
+pctt <- x %>% dplyr::select(c(clusters,NOME_DO_PRODUTO))
+
+# Analise<-pctt %>% 
+#   group_by(clusters) %>% 
+#   mutate(clusters_tamanho = n()) %>% 
+#   ungroup() %>% 
+#   group_by(clusters, NOME_DO_PRODUTO) %>% 
+#   mutate(
+#     NOME_DO_PRODUTO_TAMANHO = n(), 
+#     pct = NOME_DO_PRODUTO_TAMANHO / clusters_tamanho
+#   ) %>% 
+#   ungroup() %>% 
+#   arrange(clusters)
+
+Analise<-pctt %>%
+  group_by(clusters) %>%
+  count(NOME_DO_PRODUTO) %>%
+  mutate(perc = n/sum(n))
+
+
+a<-Analise %>% group_by(clusters) %>% summarise(perc = max(perc))
+a
+
+
+Analise<-Analise %>% arrange(desc(perc))
+Analise
+write_xlsx(x = Analise, path = 'Analise_clusters_Produtos.xlsx', col_names = TRUE)
+```
+
+
+### Detalhamento
+```{r}
+pctt <- x %>% dplyr::select(c(clusters,PORTE_CLIENTE_PJ))
+
+
+Analise_2<-pctt %>%
+  group_by(clusters) %>%
+  count(PORTE_CLIENTE_PJ) %>%
+  mutate(perc = n/sum(n))
+
+Analise_2<-Analise_2 %>% arrange(desc(perc))
+Analise_2
+
+pctt <- x %>% dplyr::select(c(clusters,Empresa_anos_vida))
+
+
+Analise_3<-pctt %>%
+  group_by(clusters) %>%
+  count(Empresa_anos_vida) %>%
+  mutate(perc = n/sum(n))
+
+Analise_3<-Analise_3 %>% arrange(desc(perc))
+Analise_3
+
+
+
+```
+
+
+
+### Split dos dados
+
+```{r}
+f<-x
+
+
+set.seed(3310)
+
+f$clusters <- as.factor(f$clusters)
+f$PORTE_CLIENTE_PJ<-as.character(f$PORTE_CLIENTE_PJ)
+f$CNAE_DIVISAO <- as.numeric(f$CNAE_DIVISAO)
+f$Empresa_anos_vida <- as.numeric(f$Empresa_anos_vida)
+
+split <- initial_split(f, prop = 0.75)
+x_train <- training(split)
+x_test <- testing(split)
+
+
+
+
+```
+
+## Recipes
+
+```{r}
+recipe1 <- recipes::recipe(clusters~.,x_train) %>% 
+  step_rm (c("NOME_DO_PRODUTO","CNPJ_CLIENTE_PJ")) %>%
+  step_unknown(0) %>% 
+  step_dummy("PORTE_CLIENTE_PJ") %>% 
+  prep()
+  
+
+
+```
+
+#### Recipes nos splits
+
+```{r}
+receita_prep <- prep(recipe1)
+
+tr_proc <- bake(receita_prep, new_data = NULL)
+tst_proc <- bake(receita_prep, new_data = x_test)
+
+
+print("Proporção de Teste")
+prop.table(table(tst_proc$clusters))
+
+print("Proporção de treino")
+prop.table(table(tr_proc$clusters))
+
+```
+#### K folds validação cruzada
+```{r}
+receita2 <- recipe(clusters~.,tr_proc) %>% prep()
+
+
+cv_split<-vfold_cv(tr_proc, v=5)
+```
+
+
+
+
+### Modelos de classificação
+
+### XGBoost 
+```{r}
+
+boost_tree_xgboost_spec <-
+  boost_tree(tree_depth = tune(), trees = tune(), learn_rate = tune(), min_n = tune(), loss_reduction = tune(), sample_size = tune(), stop_iter = tune()) %>%
+  set_engine('xgboost') %>%
+  set_mode('classification')
+
+
+```
+
+
+### XGBoost Ajuste de hiper parâmetros
+
+```{r,cache=TRUE}
+doParallel::registerDoParallel()
+
+boost_grid<-tune_grid(boost_tree_xgboost_spec, 
+                      receita2,
+                      resamples = cv_split,
+                      grid = 15,
+                      metrics = metric_set(accuracy,kap))
+
+```
+
+#### Métricas XGBoost
+```{r}
+boost_grid %>% 
+  collect_metrics() %>% 
+  head()
+best<-boost_grid %>% 
+  select_best("accuracy")
+```
+
+
+### Finalizando Boost
+```{r}
+boost_fit <- finalize_model(boost_tree_xgboost_spec, parameters = best) %>% 
+  fit(clusters~.,tr_proc)
+boost_fit
+
+saveRDS(boost_fit,"xgboost.rda")
+
+
+fitted<-boost_fit %>% 
+  predict(new_data = tst_proc) %>% 
+  mutate(observado = tst_proc$clusters,
+         modelo = "XGBoost Tuned")
+```
+
+```{r}
+resultado_xg <- fitted %>% 
+  group_by(modelo) %>% 
+  metrics(truth = observado, estimate = .pred_class)
+
+resultado_xg
+
+
+```
+
+
+## Naive Bayes
+```{r}
+# Fitting Naive Bayes Model
+# to training dataset
+set.seed(12354)  # Setting Seed
+classifier_cl <- naiveBayes(clusters ~ ., data = x_train)
+classifier_cl
+ 
+# Predicting on test data'
+y_pred <- predict(classifier_cl, newdata = x_test)
+ 
+# Confusion Matrix
+cm <- table(x_test$clusters, y_pred)
+ 
+# Model Evaluation
+confusionMatrix(cm)
+
+
+```
+
+
+# Aplicando o XGboost aos conjunto novo de dados
+
+```{r, warning=FALSE}
+
+potenciais_enriquecidos_ME <- read_delim("New_data/potenciais_enriquecidos_ME.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+potenciais_enriquecidos_EPP <- read_delim("New_data/potenciais_enriquecidos_EPP.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+potenciais_enriquecidos_MEI <- read_delim("New_data/potenciais_enriquecidos_MEI.csv", 
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+```
+
+```{r}
+f<-potenciais_enriquecidos_EPP %>% dplyr::select(c("Porte","Cnae","CNPJ", "Ano_Abertura"))
+x<-potenciais_enriquecidos_MEI %>% dplyr::select(c("Porte","Cnae","CNPJ", "Ano_Abertura"))
+y<-potenciais_enriquecidos_ME %>% dplyr::select(c("Porte","Cnae","CNPJ", "Ano_Abertura"))
+
+
+f<- filter(f,Cnae != "0000000")
+x<- filter(x,Cnae != "0000000")
+y<- filter(y,Cnae != "0000000")
+```
+
+
+### Data de venda - Abertura da empresa
+```{r}
+ 
+
+f$Empresa_anos_vida <- 2022 - f$Ano_Abertura
+x$Empresa_anos_vida <- 2022 - x$Ano_Abertura
+y$Empresa_anos_vida <- 2022 - y$Ano_Abertura
+
+x<-rbind(x,f)
+rm(f)
+x<-rbind(x,y)
+rm(y)
+
+
+```
+
+
+
+```{r}
+
+x <- atendimentos_enriquecidos %>% dplyr::select(c( "CNAE_DIVISAO","PORTE_CLIENTE_PJ", "CNPJ_CLIENTE_PJ","Empresa_anos_vida", "NOME_DO_PRODUTO"))
+
+
+```
+
+### limpeza
+
+```{r}
+#Retirando NAs
+x<-na.omit(x)
+
+#As empresas que se repetem não mudaram de Tamanho com exceção de 5 empresas
+
+x$CNAE_DIVISAO<-str_extract(x$Cnae, "^\\d{2}")
+
+# Mudando o nome das colunas
+colnames(x)[1]<-"PORTE_CLIENTE_PJ"
+
+# selecionando dados
+antes <- x %>% dplyr::select(c("CNAE_DIVISAO","Empresa_anos_vida","PORTE_CLIENTE_PJ"))
+
+```
+
+```{r}
+unique(antes$PORTE_CLIENTE_PJ)
+
+
+```
+
+### REceita para novos dados
+
+```{r}
+antes$clusters <- 0
+```
+
+
+Ajustar receita
+
+```{r}
+recipe3 <- recipes::recipe(clusters~.,antes) %>% 
+  step_dummy("PORTE_CLIENTE_PJ", one_hot = TRUE) %>% 
+  prep()
+
+receita_prep <- prep(recipe3)
+z <- bake(receita_prep, new_data = NULL)
+
+z
+
+# EPP == PQ
+# MEI == MD
+
+```
+
+Criar coluna "fake" para depois conseguir rodar como Dummy o código
+Colunas
+PORTE_CLIENTE_PJ_GD
+clusters 
+### Alteração nas colunas
+```{r}
+colnames(z)[4]<-"PORTE_CLIENTE_PJ_PQ"
+colnames(z)[6]<-"PORTE_CLIENTE_PJ_MD"
+
+z$PORTE_CLIENTE_PJ_GD <- 0
+
+
+z<-z %>% dplyr::select(c("CNAE_DIVISAO","Empresa_anos_vida","clusters",
+                      "PORTE_CLIENTE_PJ_GD","PORTE_CLIENTE_PJ_MD","PORTE_CLIENTE_PJ_ME",
+                      "PORTE_CLIENTE_PJ_PQ"))
+z$CNAE_DIVISAO<-as.numeric(z$CNAE_DIVISAO)
+```
+
+
+```{r}
+
+boost_fit %>% 
+  predict(new_data = z)
+
+
+Predicao<-boost_fit %>% 
+  predict(new_data = z)
+
+
+z$clusters <- Predicao$.pred_class
+z$CNPJ <- x$CNPJ
+
+
+```
+
+
+##### DEPOIS
+
+Criar modelo com vendas (Dummies) e CNPJ índice
+
+
+
+
+
+
+
+
+
+
+
 
 
 
